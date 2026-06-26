@@ -73,7 +73,7 @@ actually returns.
 
 ### Results across debugging iterations
 
-![Accuracy progression](readme_assets/Accuracy progression.png)
+![Accuracy progression](readme_assets/accuracy_progression.png)
 
 | Run                          | Result    | Accuracy |
 |-------------------------------|-----------|----------|
