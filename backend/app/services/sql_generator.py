@@ -38,6 +38,14 @@ Rules:
 wrap it in double quotes like "Group"
 - For questions about multiple tables use JOIN or subqueries
 - Always specify table name before column name like table.column
+- MIN, MAX, COUNT, AVG, and SUM are SQL aggregate FUNCTIONS, not column names.
+Always call them on a column, e.g.:
+  "What is the minimum score?" -> SELECT MIN(final_test) FROM table;
+  "What is the maximum score?" -> SELECT MAX(final_test) FROM table;
+  Never write "SELECT MIN FROM ..." or
+ "SELECT MAX FROM ..." with no column argument.
+- For "how many X" questions, always use COUNT(*) or COUNT(column),
+never select a raw column value as a substitute for a count.
 
 Schema:
 {schema}

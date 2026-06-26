@@ -1,6 +1,10 @@
 import { useState, useCallback } from 'react'
 
-const API = '/api'
+// In local dev, Vite's proxy forwards '/api' to localhost:8000.
+// In production (Vercel), set VITE_API_URL to your deployed
+// backend URL (e.g. https://your-space.hf.space/api) in the
+// Vercel project's Environment Variables settings.
+const API = import.meta.env.VITE_API_URL || '/api'
 
 export function useQuery() {
   const [loading, setLoading] = useState(false)

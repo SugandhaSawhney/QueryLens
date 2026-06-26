@@ -1,262 +1,193 @@
-# QueryLens
+# QueryLens — AI-Powered Natural Language to SQL BI Tool
 
-**Natural Language to SQL — Business Intelligence Tool**
-
-QueryLens lets anyone query structured data using plain English. No SQL required. Upload a CSV, ask a question, get results as a table and chart in seconds.
-
-[![Python](https://img.shields.io/badge/Python-3.10+-blue)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green)](https://fastapi.tiangolo.com)
-[![React](https://img.shields.io/badge/React-18-61dafb)](https://react.dev)
-[![License](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
-
----
-
-## What it does
-
-Most business data sits in spreadsheets that require SQL knowledge to query — creating a bottleneck where non-technical teams depend on engineers for basic data questions. QueryLens removes that dependency entirely.
-
-```
-Upload CSV  →  Ask a question in plain English  →  Get SQL + chart + table instantly
-```
-
----
+QueryLens lets you upload any CSV and query it in plain English. It
+converts natural-language questions into SQL using an LLM (via Groq),
+runs the query safely against an in-memory SQLite database, and
+returns results, auto-inferred charts, and the generated SQL for
+transparency.
 
 ## Features
 
-- **Natural Language → SQL** via LLM with schema-aware prompting
-- **Auto chart selection** — bar, line, or pie picked based on result shape
-- **Multi-table support** — upload multiple CSVs, query across them
-- **SQL preview + edit** — see and modify generated SQL before running
-- **Read-only enforcement** — blocks DROP, DELETE, UPDATE, INSERT at the sanitization layer
-- **Query history** — last 10 queries saved locally, one-click re-run
-- **CSV export** — download any result set instantly
-
----
+- **Plain-English querying** — ask "How many students walk to
+  school?" and get a direct answer, no SQL knowledge required
+- **Schema-aware prompting** — live table schema and sample rows are
+  injected into the LLM context so generated SQL matches your actual
+  data, not a guess
+- **Multi-table CSV ingestion** — upload multiple CSVs, each becomes
+  a queryable table with automatic schema inference
+- **Read-only SQL validation layer** — enforces single-statement,
+  SELECT-only queries and blocks access to SQLite system tables,
+  preventing both destructive operations and schema-leak attacks
+- **Raw SQL mode** — power users can bypass NL and run validated raw
+  SQL directly
+- **Auto chart-type inference** — results are rendered as the most
+  appropriate chart type based on the data shape
+- **Query history** — last 10 queries persisted locally for quick
+  re-runs
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Frontend | React 18, Vite, Recharts, Lucide |
-| Backend | Python, FastAPI, SQLite, Pandas |
-| AI / LLM | Groq API — LLaMA 3.1 8B (default) · Ollama · HuggingFace |
-| Dev Tools | uvicorn, python-dotenv, SQLAlchemy |
+| Layer       | Technology                                  |
+|-------------|----------------------------------------------|
+| Frontend    | React.js, Vite, Recharts                     |
+| Backend     | FastAPI, Python                              |
+| Database    | SQLite (per-session, generated from CSVs)    |
+| LLM         | Groq API (Llama 3.1 8B Instant)               |
+| Testing     | pytest, custom ground-truth accuracy harness |
 
----
-
-## Project Structure
+## Architecture
 
 ```
-querylens/
-├── backend/
-│   ├── app/
-│   │   ├── main.py                 # FastAPI app, CORS
-│   │   ├── routes/
-│   │   │   ├── upload.py           # CSV → SQLite ingestion
-│   │   │   └── query.py            # NL → SQL → result
-│   │   ├── services/
-│   │   │   ├── schema_extractor.py # Schema + sample row extraction
-│   │   │   ├── sql_generator.py    # LLM prompt + SQL cleanup
-│   │   │   └── sql_runner.py       # Sanitization + execution
-│   │   └── db/
-│   │       └── database.py         # SQLite connection
-│   ├── .env                        # API keys (never commit)
-│   └── requirements.txt
-└── frontend/
-    ├── src/
-    │   ├── App.jsx
-    │   ├── components/
-    │   │   ├── Header.jsx
-    │   │   ├── SchemaPanel.jsx     # Sidebar: upload + schema explorer
-    │   │   ├── QueryBox.jsx        # NL input + suggestions + history
-    │   │   ├── SQLPreview.jsx      # Generated SQL + syntax highlight
-    │   │   ├── ResultTable.jsx     # Sortable table + CSV export
-    │   │   └── ChartView.jsx       # Auto chart rendering
-    │   └── hooks/
-    │       └── useQuery.js         # API calls + state management
-    └── package.json
+CSV Upload → Schema Extraction → Natural Language Question
+                                         ↓
+                          Schema + Sample Rows → LLM Prompt
+                                         ↓
+                              Generated SQL ← Groq API
+                                         ↓
+                       SQL Validation Layer (read-only,
+                       single-statement, no system tables)
+                                         ↓
+                          SQLite Execution → JSON Result
+                                         ↓
+                       React Frontend (table + auto chart)
 ```
 
----
+## Accuracy Testing
 
-## Prerequisites
+Rather than estimate accuracy informally, QueryLens is validated
+against a ground-truth test suite: expected answers are computed
+directly from the source CSV using pandas, independent of the
+application, then compared against what the NL→SQL pipeline
+actually returns.
 
-- Python 3.10+
-- Node.js 18+
-- Free [Groq API key](https://console.groq.com) — takes 2 minutes
+**Two complementary test layers:**
 
----
+1. **`test_accuracy.py`** — a 33-question manual test harness
+   covering simple lookups, aggregations (COUNT/AVG/MIN/MAX),
+   multi-condition filters, GROUP BY queries, and ORDER BY/Top-N
+   queries.
+2. **`tests/test_querylens_pytest.py`** — an 18-case pytest suite
+   covering the same query categories plus dedicated security tests
+   verifying that stacked-statement injection and schema-leak
+   attempts are rejected.
+
+### Results across debugging iterations
+
+![Accuracy progression](readme_assets/accuracy_progression.png)
+
+| Run                          | Result    | Accuracy |
+|-------------------------------|-----------|----------|
+| Run 1 (baseline)              | 27 / 33   | 81.8%    |
+| Run 2 (stale-table fix)       | 26 / 33   | 78.8%    |
+| Run 3 (MIN/MAX prompt fix)    | 31 / 33   | 93.9%    |
+| Pytest suite (post-fix)       | 17 / 18   | 94.4%    |
+
+**What the iterations found and fixed:**
+
+- **Stale-table schema pollution** — a previously uploaded CSV's
+  table remained in the database after a new upload, causing the LLM
+  to hallucinate unnecessary JOINs against a now-irrelevant table.
+  Fixed by ensuring old tables are cleared via the existing
+  delete-table endpoint.
+- **Aggregate-function misinterpretation** — `MIN`/`MAX` were
+  sometimes generated as bare column references (`SELECT MIN FROM
+  table`) instead of function calls. Fixed by adding explicit
+  function-usage examples to the SQL-generation prompt.
+- **LLM non-determinism** — even at `temperature=0`, the same
+  question can occasionally produce different SQL across runs (a
+  known limitation of LLM-based SQL generation, not unique to this
+  project). The dip in Run 2 reflects this variance rather than a
+  regression.
+
+Accuracy is reported as a **range (80–94%)** rather than a single
+number, since it varies run-to-run due to LLM non-determinism — this
+is the honest, measured behavior of the system rather than a
+best-case figure.
+
+### Running the tests yourself
+
+```bash
+cd backend
+pip install -r requirements.txt
+pip install pytest requests
+
+# Start the backend in one terminal
+uvicorn app.main:app --reload
+
+# In another terminal, run either suite:
+python test_accuracy.py        # 33-question manual harness
+pytest tests/ -v                # 18-case pytest suite
+```
+
+## Security Notes
+
+The SQL validation layer (`app/services/sql_runner.py`) goes beyond
+a simple keyword blacklist:
+
+- Rejects multiple stacked statements (`SELECT 1; DROP TABLE x`)
+- Enforces that every query starts with `SELECT`
+- Blocks direct access to SQLite system tables (`sqlite_master`,
+  etc.) that could otherwise leak schema/structure via `UNION SELECT`
+- Blocks `PRAGMA`, `ATTACH`, and `DETACH` in addition to standard
+  destructive keywords
+
+This is documented as **defense-in-depth, not a complete guarantee**
+— it remains string-based validation rather than a full SQL parser,
+and the appropriate production boundary is that this API should only
+ever operate on disposable, per-session data rather than a database
+containing sensitive information.
+
+## Dataset
+
+The sample dataset (`student_score.csv`) used for testing is sourced
+from Kaggle and distributed under the Apache 2.0 License. Any CSV
+can be substituted — the schema-extraction and prompting pipeline is
+dataset-agnostic.
 
 ## Setup
 
-### 1. Get a Groq API key
+### Backend
 
-Sign up at [console.groq.com](https://console.groq.com) → API Keys → Create API Key. Free, no credit card.
-
-### 2. Configure environment
-
-Create `backend/.env`:
-```env
-USE_OLLAMA=false
-GROQ_API_KEY=gsk_xxxxxxxxxxxxxxx
-```
-
-### 3. Install backend
-
-Open a **Command Prompt** terminal in VS Code:
 ```bash
 cd backend
 python -m venv venv
-venv\Scripts\activate
-pip install pandas --only-binary=:all:
-pip install fastapi==0.111.0 uvicorn[standard]==0.29.0 python-multipart==0.0.9 sqlalchemy==2.0.30 requests==2.31.0 python-dotenv==1.0.1 aiofiles==23.2.1
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-### 4. Install frontend
+Create a `.env` file in `backend/`:
 
-Open a second terminal:
+```
+GROQ_API_KEY=your_key_here
+GROQ_API_URL=https://api.groq.com/openai/v1/chat/completions
+```
+
+```bash
+uvicorn app.main:app --reload
+```
+
+### Frontend
+
 ```bash
 cd frontend
 npm install
+npm run dev
 ```
 
----
+## Deployment
 
-## Running
+- **Backend** — deployed via Docker on Hugging Face Spaces
+- **Frontend** — deployed on Vercel, configured with `VITE_API_URL`
+  pointing to the deployed backend
 
-Open two terminals and run one command in each:
+## Known Limitations
 
-```bash
-# Terminal 1 — Backend
-cd backend && venv\Scripts\activate && uvicorn app.main:app --reload --port 8000
-
-# Terminal 2 — Frontend
-cd frontend && npm run dev
-```
-
-Open **http://localhost:5173**
-
-| Service | URL |
-|---|---|
-| App | http://localhost:5173 |
-| API | http://localhost:8000 |
-| API Docs | http://localhost:8000/docs |
-
----
-
-## How to Use
-
-1. **Upload a CSV** — drag and drop onto the left sidebar
-2. **Check the schema** — expand the table to see columns and types
-3. **Type your question** — e.g. *"Show total revenue by product for top 10"*
-4. **Review the SQL** — edit it manually if needed, then re-run
-5. **Switch views** — Table / Chart / Both tabs
-6. **Export** — download results as CSV anytime
-
----
-
-## API Reference
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/upload` | Upload CSV file |
-| `GET` | `/api/schema` | Get all table schemas |
-| `POST` | `/api/query` | Natural language → SQL → result |
-| `POST` | `/api/query/raw` | Execute raw SQL directly |
-| `DELETE` | `/api/table/{name}` | Delete a table |
-| `GET` | `/health` | Health check |
-
-**Example:**
-```bash
-curl -X POST http://localhost:8000/api/query \
-  -H "Content-Type: application/json" \
-  -d '{"question": "Show top 5 products by revenue"}'
-```
-
-```json
-{
-  "question": "Show top 5 products by revenue",
-  "sql": "SELECT product, SUM(revenue) FROM sales GROUP BY product ORDER BY SUM(revenue) DESC LIMIT 5;",
-  "result": {
-    "columns": ["product", "SUM(revenue)"],
-    "rows": [["Product A", 45000], ["Product B", 38000]],
-    "count": 5
-  }
-}
-```
-
----
-
-## LLM Configuration
-
-Three inference options — swap by editing `.env`:
-
-| Provider | Speed | Cost | Privacy | Daily Limit |
-|---|---|---|---|---|
-| **Groq** (default) | ~1–2s | Free | Cloud | 14,400 requests |
-| **Ollama** | ~3–8s | Free | 100% local | None |
-| **HuggingFace** | ~20–30s | Free | Cloud | Limited |
-
-**To use Ollama locally:**
-```bash
-# Install from ollama.com, then:
-ollama pull sqlcoder
-ollama serve
-```
-Update `.env`:
-```env
-USE_OLLAMA=true
-```
-
----
-
-## Security
-
-All generated SQL passes through a sanitization layer before execution.
-
-**Blocked:** `DROP` · `DELETE` · `UPDATE` · `INSERT` · `ALTER` · `TRUNCATE` · `CREATE` · `GRANT` · `REVOKE`
-
-Any query containing these returns a `400` error — the database is never touched. Protects against prompt injection attacks where a crafted question attempts to modify or destroy data.
-
----
-
-## Measuring Accuracy
-
-QueryLens uses **execution accuracy** — whether the generated SQL runs and returns the correct result.
-
-**How to test on your own dataset:**
-
-Create a test file and manually verify results for 20 representative questions:
-
-```json
-[
-  { "question": "Count total records",          "expected_rows": 1 },
-  { "question": "Show top 10 rows",             "expected_rows": 10 },
-  { "question": "Average salary by department", "expected_columns": ["department", "AVG(salary)"] }
-]
-```
-
-```
-Accuracy = Correct queries / Total test queries × 100
-```
-
-**Benchmark — LLaMA 3.1 8B on typical business CSVs:**
-
-| Query Type | Accuracy |
-|---|---|
-| Simple SELECT + LIMIT | ~90–95% |
-| Aggregations (COUNT, SUM, AVG) | ~80–87% |
-| GROUP BY + ORDER BY | ~75–82% |
-| Multi-table JOINs | ~60–70% |
-
-**Tip:** Descriptive column names (`total_revenue` vs `col3`) are the single biggest factor in accuracy. Clear schema = better SQL.
-
----
-
-## License
-
-MIT — free to use, modify, and distribute.
-
----
-
-*FastAPI · React · SQLite · Groq · LLaMA 3.1*
+- LLM-based SQL generation is non-deterministic; the same question
+  can occasionally produce different (and sometimes invalid) SQL
+  across runs
+- GROUP BY queries sometimes omit the grouping column from the
+  SELECT clause, producing an aggregate value without its label
+- The SQL validation layer is string-based, not a full SQL parser —
+  suitable as defense-in-depth for a disposable per-session
+  database, not as a standalone guarantee for production systems
+  handling sensitive data
